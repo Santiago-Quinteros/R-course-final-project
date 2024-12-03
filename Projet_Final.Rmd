@@ -1,0 +1,561 @@
+---
+title: "Life Expectancy"
+author: "Audrey Gonzalo et Santiago Quinteros"
+date: "24-03-2023"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(sf)
+library(rvest)
+library(stringr)
+library(scales)
+library(viridis)
+library(Amelia)
+library(dplyr)
+```
+
+## Data Mining : Life Expectancy
+
+The data set has each country's life expectancy and many other metrics such as schooling, GDP and alcohol consumption.
+
+### Objective:
+
+-   Determine which variables have the strongest impact on life expectancy.
+
+-   Discover what could countries do to improve their life expectancy.
+
+-   Have "developed" countries already reached the upper limit of life expectancy ?
+
+-   Is there particular cases which other countries can take as an example to improve their life expectancy?
+
+-   Is there others in which life expectancy decreased?
+
+-   Should this latter two examples be taken into consideration, or the abrupt changes correspond to major socio-economical, geopolitics or health related events make them unusable?
+
+-   Are the most important metrics the same between developed and not developed countries? are the most accountable in these specific models, and are they the same as the ones from the generic model ?
+
+### Data understanding
+
+<https://www.kaggle.com/datasets/kumarajarshi/life-expectancy-who?resource=download>
+
+```{r}
+data <- read.csv("LifeExpectancyData.csv")
+dim(data)
+names(data)
+```
+
+```{r}
+summary(data)
+```
+
+Summary :
+
+-   Time goes from year 2000 to year 2015 by step of one year.
+
+-   For 10 countries in particular years we don't have the Life Expectancy data
+
+-   There is sufficient data and big variations to make a good analysis
+
+## Missing values
+
+```{r}
+library(naniar)
+gg_miss_var(data)
+```
+
+```{r}
+LED <- read.csv("LifeExpectancyData.csv")
+
+library(imputer)
+tableNA(LED)
+is.na (LED)
+missmap(LED)
+missingvalues <- LED[!complete.cases(LED),]
+
+```
+
+There is a lot of missing values in different rows. We will take that into consideration when doing the analysis functions.
+
+## Developing vs developed
+
+```{r}
+library(table1)
+table1(~ data$Life.expectancy | data$Status, data = data)
+
+library(arules)
+library(Matrix)
+le_dis <- as.factor(ifelse(data$Life.expectancy<50                           , '1',
+                    ifelse(50<=data$Life.expectancy & data$Life.expectancy<60, '2',
+                    ifelse(60<=data$Life.expectancy & data$Life.expectancy<70, '3',
+                    ifelse(70<=data$Life.expectancy & data$Life.expectancy<80, '4',
+                    ifelse(80<=data$Life.expectancy & data$Life.expectancy<90, '5',
+                    ifelse(data$Life.expectancy >= 90                        , '6', 0)))))))
+
+
+le_data <- data.frame(time = data$Year, country = data$Country, status = data$Status, lifeExpectancy = le_dis, GDP = data$GDP, alcohol = data$Alcohol, education = data$Schooling, BMI = data$BMI, HDI = data$Income.composition.of.resources, hepB = data$Hepatitis.B, HIV = data$HIV.AIDS, meas = data$Measles, diph = data$Diphtheria, polio = data$Polio, healthExp = data$percentage.expenditure, totExp = data$Total.expenditure, pop = data$Population, a_mortality = data$Adult.Mortality, i_mortality = data$infant.deaths, c_mortality = data$under.five.deaths, c_thinness = data$thinness.5.9.years, t_thinness = data$thinness..1.19.years)
+
+table1(~ le_data$lifeExpectancy | le_data$status, data = le_data)
+```
+
+We can make a global analysis and also a comparison between developed and developing countries, as the difference between them is big (12.1 years).
+
+```{r}
+ylim = c(40, 90)
+plot(data[data$Status=="Developing",]$Year, data[data$Status=="Developing",]$Life.expectancy, type = 'l', col = 'blue', ylim = ylim, ylab = 'Life Expectancy', xlab = 'Years')
+lines(data[data$Status=="Developed",]$Year, data[data$Status=="Developed",]$Life.expectancy, type = 'l', col = 'red', ylim = ylim)
+legend(x = "bottomright",  legend = c("Developping", "Developped"), col =c('blue', 'red'), lwd = 2)
+```
+
+## Visual representation of Life Expectancy
+
+```{r}
+
+hist(data$Life.expectancy, prob = TRUE, ylim = c(0, 0.11), xlab = 'Age categories', main = 'Histogram of Life Expectancy', breaks = 4)
+boxplot(data$Life.expectancy, horizontal=TRUE, boxwex=0.02,  outline=TRUE, frame=F, col = "darkgrey", add = TRUE, at=0.015)
+lines(density(data[data$Status=="Developing",]$Life.expectancy, na.rm= TRUE), col = 'red')
+lines(density(data[data$Status=="Developed",]$Life.expectancy, na.rm= TRUE), col = 'blue')
+
+```
+
+```{r}
+plot(le_data$lifeExpectancy)
+```
+
+```{r}
+library(tidyverse)
+library(sf)
+library(rvest)
+library(stringr)
+library(scales)
+library(viridis)
+library(dplyr)
+
+LED <- read.csv("LifeExpectancyData.csv")
+LED2 <- subset(LED,Year==2000) 
+#Verify i'm not missing any country
+mismatch <- anti_join(LED, LED2, by ='Country')[1:2]
+map.world <- map_data('world')
+
+#==========================
+# CHECK FOR JOIN MISMATCHES
+#==========================
+
+mismatch2 <- anti_join(LED2, map.world, by = c('Country' = 'region'))
+#=====================
+# RECODE COUNTRY NAMES
+#=====================
+
+map.world %>%
+  group_by(region) %>%
+  summarise() %>%
+  print(n = Inf)
+
+
+LED2 <- LED2 %>% 
+  mutate(Country = case_when(
+    Country == "Bolivia (Plurinational State of)" ~ "Bolivia",
+    Country == "Brunei Darussalam" ~ "Brunei",
+    Country == "Antigua and Barbuda" ~ "Antigua",
+    Country == "Côte d'Ivoire" ~ "Ivory Coast",
+    Country == "Cabo Verde" ~ "Cape Verde",
+    Country == "Congo" ~ "Republic of Congo",
+    Country == "Czechia" ~ "Czech Republic",
+    Country == "Democratic People's Republic of Korea" ~ "North Korea",
+    Country == "Iran (Islamic Republic of)" ~ "Iran",
+    Country == "Lao People's Democratic Republic" ~ "Laos",
+    Country == "Micronesia (Federated States of)" ~ "Micronesia",
+    Country == "Republic of Korea" ~ "South Korea",
+    Country == "Republic of Moldova" ~ "Moldova",
+    Country == "Russian Federation" ~ "Russia",
+    Country == "Saint Kitts and Nevis" ~ "Saint Kitts",
+    Country == "Saint Vincent and the Grenadines" ~ "Saint Vincent",
+    Country == "Syrian Arab Republic" ~ "Syria",
+    Country == "The former Yugoslav republic of Macedonia" ~ "North Macedonia",
+    Country == "Trinidad and Tobago" ~ "Trinidad",
+    Country == "Tuvalu" ~ "Tuvalu", #not in the map
+    Country == "United Kingdom of Great Britain and Northern Ireland" ~ "UK", 
+    Country == "United Republic of Tanzania" ~ "Tanzania" ,   
+    Country == "United States of America" ~ "USA",
+    Country == "Venezuela (Bolivarian Republic of)" ~ "Venezuela", 
+    Country == "Viet Nam" ~ "Vietnam",
+    TRUE ~ Country
+    
+  )
+  )
+
+
+#Check
+mismatch2 <- anti_join(LED2, map.world, by = c('Country' = 'region')) #Only Tuvalu missing, as expected
+
+#-----------------------
+# JOIN DATASETS TOGETHER
+#-----------------------
+
+map.led <- left_join( map.world, LED2, by = c('region' = 'Country'))
+
+#=====
+# PLOT
+#=====
+
+#=======================
+#    FORMATTED DRAFT
+#=======================
+
+
+#solo permite ciertos valores de color, discretiza directamente al graficar
+
+
+ggplot(map.led, aes( x = long, y = lat, group = group )) +
+  geom_polygon(aes(fill = Life.expectancy)) +
+  scale_fill_gradientn(colours = c('brown','red','yellow','green','darkgreen')
+                       ,values = scales::rescale(c(50,60,70,80,85))
+                       ,labels = comma
+                       ,breaks = c(50,60,70,80)
+  ) +
+  guides(fill = guide_legend(reverse = T)) +
+  labs(fill = 'Life expectancy'
+       ,title = 'Life expectancy by Country'
+       ,subtitle = '2000'
+       ,x = NULL
+       ,y = NULL) +
+  theme(text = element_text(family = 'Arial', color = '#EEEEEE')
+        ,plot.title = element_text(size = 28)
+        ,plot.subtitle = element_text(size = 14)
+        ,axis.ticks = element_blank()
+        ,axis.text = element_blank()
+        ,panel.grid = element_blank()
+        ,panel.background = element_rect(fill = '#333333')
+        ,plot.background = element_rect(fill = '#333333')
+        ,legend.position = c(.18,.36)
+        ,legend.background = element_blank()
+        ,legend.key = element_blank()
+  ) 
+```
+
+```{r}
+#============
+# LED changes by country
+#============
+
+LEDVariationByCountry <- aggregate (Life.expectancy ~Country, data=LED, FUN=function(x) (x[1]-x[length(x)]))
+LEDVariationByCountry <- LEDVariationByCountry[order(LEDVariationByCountry$Life.expectancy),]
+
+plot <- barplot(names.arg=LEDVariationByCountry$Country,height=LEDVariationByCountry$Life.expectancy ,ylab="Life Expectancy Variation", las=2)
+
+summary(LEDVariationByCountry)
+```
+
+We can take the case of Zimbabwe to see if the most important factors we get at the end are correct. Extreme negative cases could be discarded as they correspond to countries in war.
+
+## Visualy recognise correlations:
+
+#### Boxplot:
+
+```{r}
+library(stats)
+boxplot(Life.expectancy~Status,data=data)
+#var.test(Life.expectancy~Status,data=data) 
+#wilcox.test(Life.expectancy~Status,var.equal=T,data=data)
+
+
+boxplot(HDI~lifeExpectancy,data=le_data, horizontal = TRUE)
+boxplot(education~lifeExpectancy,data=le_data, horizontal = TRUE)
+boxplot(GDP~lifeExpectancy,data=le_data, horizontal = TRUE)
+boxplot(healthExp~lifeExpectancy,data=le_data, horizontal = TRUE)
+boxplot(BMI~lifeExpectancy,data=le_data, horizontal = TRUE)
+```
+
+#### Scatterplot:
+
+```{r}
+library(graphics)
+## Social factors
+x_social <- data.frame(lifeExpectancy = data$Life.expectancy, data$BMI, data$Schooling, data$Alcohol, data$Income.composition.of.resources)
+pairs(x_social, labels = c("Life Expectancy", 'BMI', 'Education', 'Alcohol', 'HDI'))
+
+## Eco factors
+x_eco <- data.frame(lifeExpectancy = data$Life.expectancy, data$GDP, data$Total.expenditure, data$percentage.expenditure, data$Population)
+pairs(x_eco, labels = c("Life Expectancy", "GDP", "Expenditure", "Health Exp", "Population"))
+
+## Mortality factors
+x_mortality <- data.frame(lifeExpectancy = data$Life.expectancy, infantDeaths = data$infant.deaths, data$under.five.deaths, data$Adult.Mortality, data$thinness.5.9.years, data$thinness..1.19.years)
+pairs(x_mortality, labels = c("Life Expectancy", "Infant Deaths", "< 5 years old deaths", "Adult mortality", "Malnut 5-9yrs", "Malnut 20-19yrs"))
+
+## Immunization factors
+x_immunization <- data.frame(lifeExpectancy = data$HIV.AIDS, data$Hepatitis.B, data$Measles, data$Polio)
+pairs(x_immunization, label = c("Life Expectancy",'HIV', 'Hepatitis B', 'Measles', 'Polio'))
+```
+
+Correlations with life expectancy:
+
+Developed or not, adult mortality, alcohol, percentage expenditure, BMI, HIV, GDP, Income & schooling.
+
+No correlation:
+
+The rest.
+
+\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
+
+The thinness between 5 and 9 years, and between 1 and 19 years seems like redundant data as they are highly correlated.
+
+Alcohol consumption seems to be a tricky factor because it is known to be bad for the body, but the developed countries have more access to it.
+
+```{r}
+library(stats)
+## Social factors
+x_social <- data.frame(lifeExpectancy = le_data$lifeExpectancy, BMI =  data$BMI, education = data$Schooling, alcohol = data$Alcohol, HDI = data$Income.composition.of.resources, time = data$Year)
+x_social <- x_social[x_social$time=="2014",]
+x_social <- na.omit(x_social)
+clust = kmeans(x_social[,2:4],5)
+pairs(x_social, labels = c("Life Expectancy", 'BMI', 'Education', 'Alcohol', 'HDI'), col = clust$cluster)
+
+## Eco factors
+x_eco <- data.frame(lifeExpectancy = le_data$lifeExpectancy, data$GDP, data$Total.expenditure, data$percentage.expenditure, data$Population, time = data$Year)
+x_eco <- x_eco[x_eco$time=="2014",]
+x_eco <- na.omit(x_eco)
+clust = kmeans(x_eco[,2:4],5)
+pairs(x_eco, labels = c("Life Expectancy", "GDP", "Expenditure", "Health Exp", "Population"), col = clust$cluster)
+
+## Mortality factors
+x_mortality <- data.frame(lifeExpectancy = le_data$lifeExpectancy, data$infant.deaths, data$under.five.deaths, data$Adult.Mortality, data$thinness.5.9.years, data$thinness..1.19.years, time = data$Year)
+x_mortality <- x_mortality[x_mortality$time=="2014",]
+x_mortality <- na.omit(x_mortality)
+clust = kmeans(x_mortality[,2:4],5) 
+pairs(x_mortality, labels = c("Life Expectancy", "Infant Deaths", "< 5 years old deaths", "Adult mortality", "Malnut 5-9yrs", "Malnut 20-19yrs"), col = clust$cluster)
+
+## Immunization factors
+x_immunization <- data.frame(lifeExpectancy = le_data$lifeExpectancy, data$Hepatitis.B, data$Measles, data$Polio, time = data$Year)
+x_immunization <- x_immunization[x_immunization$time=="2014",]
+x_immunization <- na.omit(x_immunization)
+clust = kmeans(x_immunization[,2:4],5) 
+pairs(x_immunization, label = c("Life Expectancy",'HIV', 'Hepatitis B', 'Measles', 'Polio'), col = clust$cluster)
+```
+
+Easier to differentiate the lower age classes based on a mix of socio-economical and health features, but much more tricky to tell apart the high age classes. No evident link based on distance calculation, highlighted here.
+
+## Correlations
+
+```{r}
+
+developed <- (LED$Status)
+developed <- ifelse(developed=="Developed",1,0)
+LED3 <- cbind (LED,developed)
+
+#correlation comparison
+library(data.table) 
+correlation <- data.table(Adult.Mortality=0, infant.deaths=0, Alcohol=0, percentage.expenditure=0,Hepatitis.B=0,Measles=0,BMI=0,under.five.deaths=0,Polio=0,Total.expenditre=0,Diphtheria=0,HIV.AIDS=0,GDP=0,Population=0,thinness..1.19.years=0,thinnes.5.9.years=0,Income.compostion.of.ressources=0,Schooling=0,developed=0)
+for (x in 1:19){
+correlation[1,x] <- cor(LED3$Life.expectancy,LED3[,x+4], use = "complete.obs")
+}
+par(mar = c(10, 4,2, 0) + 0)
+plot <- barplot(height=(abs(unlist(correlation[1,]))),ylab="absolute correlation with life expectancy",names.arg=names(correlation),las=2,ylim=c(0,1))
+
+```
+
+## Classification task
+
+```{r}
+names(le_data)
+```
+
+```{r}
+library(caret)
+library(ggplot2)
+set.seed(18)
+df_sampling_index <- createDataPartition(le_data$lifeExpectancy, times = 1, p = 0.7, list = FALSE) 
+
+df_training <- le_data[df_sampling_index, ]
+df_testing <-  le_data[-df_sampling_index, ]
+
+plot(seq(0,4,1), prop.table(table(df_training$lifeExpectancy)), col = 'red', type = 'p', xlab = 'age classes', ylab = 'proportion')
+lines(seq(0.1,4.1,1), prop.table(table(df_testing$lifeExpectancy)), col = 'blue', type = 'p')
+
+#prop.table(table(df_training$lifeExpectancy))
+#prop.table(table(df_testing$lifeExpectancy))
+barplot(c(c(0.04193077, 0.04104903), c(0.15943442, 0.15963512), c(0.24280839, 0.24287343), c(0.46562652, 0.46636260), c(0.09019990, 0.09007982)), col  = c('red', 'blue'), beside = TRUE, width = c(2,2), space = c(1,0), names.arg = c("<50", "", "50-60", "", '60-70', "", "70-80", "", ">80", ""), xlab = "Age Categories", ylab = 'proportion')
+
+#plot(data_dis$lifeExpectancy)
+#lines(df_training$lifeExpectancy, col = 'red')
+#lines(df_testing$lifeExpectancy, col = 'blue')
+```
+
+Same distribution of classes in the train and in the test, but not all classes are equally distributed. It would be worthwhile to merge class 1 and 0.
+
+```{r}
+df_control <- trainControl(method="cv", #validation croisee
+                           number = 5,  # 5 folds
+                           classProbs = TRUE,
+                           summaryFunction = ) 
+
+df_training <- na.omit(df_training)
+```
+
+```{r}
+library(randomForestSRC)
+library(dplyr)
+le_data <- mutate_if(le_data, is.character, as.factor)
+SRFmod <- rfsrc(lifeExpectancy ~ GDP + HDI + education + BMI + status + GDP + alcohol + hepB + polio + meas + HIV + pop + a_mortality + i_mortality + c_mortality + c_thinness + t_thinness + totExp + healthExp,
+data = le_data,
+na.action = "na.omit",
+tree.err = TRUE,
+importance = TRUE)
+SRFmod
+
+jk.SRFmod <- subsample(SRFmod)
+##treshold of variable importance
+subratio <- jk.SRFmod$subratio
+# the most influencial variables : Surgery, Stage, Insurance, Lymph.invasion
+vi <- arrange(as.data.frame(jk.SRFmod$vmp$lifeExpectancy.4))#, -time)
+vi <- tibble::rownames_to_column(vi, "Variables")
+top.var <- subset(vi)#, time > subratio)
+top.var
+# plot the vimp 
+plot(jk.SRFmod, cex = 0.4)
+abline(v = 0.03*100, col = "blue")
+```
+
+Globally, the most important variables are:
+
+Adult mortality, HDI,HIV and education.
+
+# `Variable importance`
+
+```{r}
+graficos <- plot(SRFmod, plots.one.page = FALSE)
+
+```
+
+The error rate is the smallest for class number 4 (the biggest) and the biggest for class 1 (The smallest)
+
+## Comparison of factor relevance in developing and developed countries
+
+```{r}
+#Model that compares if a country is bellow or over the average in his developped or not develloped group
+
+LED_Grouped <- subset(LED3, (developed == 0))
+LED_Grouped$Life.expectancy <-  ifelse(LED_Grouped[,4] < mean(LED_Grouped[,4], na.rm = TRUE), 0, 1) #0 below average, 1 over average
+
+LED_Grouped <-LED_Grouped[complete.cases(LED_Grouped$Life.expectancy),]
+summary(LED_Grouped[,4])
+LED_Grouped <-LED_Grouped[complete.cases(LED_Grouped),]
+LED_Grouped <- subset(LED_Grouped,Year==2013)
+LED_Grouped <- subset(LED_Grouped, select = -c(1, 2,3,23))
+library(caret)
+
+# separation echantillons apprentissage / test
+
+set.seed(18)
+df_sampling_index <- createDataPartition(LED_Grouped$Life.expectancy, times = 1, p = 0.7, list = FALSE)
+
+df_training <- LED_Grouped[df_sampling_index, ]
+df_testing <-  LED_Grouped[-df_sampling_index, ]
+
+prop.table(table(df_training$Life.expectancy))
+prop.table(table(df_testing$Life.expectancy))
+
+df_control <- trainControl(method="cv", #validation croisee
+                           number = 5,  # 5 folds
+                           classProbs = TRUE,
+                           summaryFunction = twoClassSummary)
+
+sum(is.na(df_training$Life.expectancy))
+library(randomForest)
+
+model_rf2 <- randomForest(Life.expectancy ~., data = df_training)
+
+prediction_rf2 <- predict(model_rf2, df_testing)
+
+prediction_rf2 <- ifelse(prediction_rf2 > 0.5, 1, 0)
+
+matconfus_rf2 <- table(prediction_rf2, df_testing$Life.expectancy)
+matconfus_rf2
+
+err_rf2 <- 1-(sum(diag(matconfus_rf2)) / sum(matconfus_rf2))
+err_rf2
+
+varImpPlot(model_rf2, sort = TRUE, n.var = 19, main = "Variables importance")
+```
+
+For developing countries, the most important variables are:
+
+HDI, education, HIV, and Adult mortality.
+
+The same as globally with different order
+
+```{r}
+#Model that compares if a country is bellow or over the average in his developped or not develloped group
+
+LED_Grouped2 <- subset(LED3, (developed == 1))
+LED_Grouped2$Life.expectancy <-  ifelse(LED_Grouped2[,4] < mean(LED_Grouped2[,4], na.rm = TRUE), 0, 1) #0 below average, 1 over average
+
+LED_Grouped2 <-LED_Grouped2[complete.cases(LED_Grouped2$Life.expectancy),]
+summary(LED_Grouped2[,4])
+LED_Grouped2 <-LED_Grouped2[complete.cases(LED_Grouped2),]
+LED_Grouped2 <- subset(LED_Grouped2,Year==2013)
+LED_Grouped2 <- subset(LED_Grouped2, select = -c(1, 2,3,23))
+library(caret)
+
+# separation echantillons apprentissage / test
+
+set.seed(18)
+df_sampling_index <- createDataPartition(LED_Grouped2$Life.expectancy, times = 1, p = 0.7, list = FALSE)
+
+df_training <- LED_Grouped2[df_sampling_index, ]
+df_testing <-  LED_Grouped2[-df_sampling_index, ]
+
+prop.table(table(df_training$Life.expectancy))
+prop.table(table(df_testing$Life.expectancy))
+
+df_control <- trainControl(method="cv", #validation croisee
+                           number = 5,  # 5 folds
+                           classProbs = TRUE,
+                           summaryFunction = twoClassSummary)
+
+sum(is.na(df_training$Life.expectancy))
+library(randomForest)
+
+model_rf2 <- randomForest(Life.expectancy ~., data = df_training)
+
+prediction_rf2 <- predict(model_rf2, df_testing)
+
+prediction_rf2 <- ifelse(prediction_rf2 > 0.5, 1, 0)
+
+matconfus_rf2 <- table(prediction_rf2, df_testing$Life.expectancy)
+matconfus_rf2
+
+err_rf2 <- 1-(sum(diag(matconfus_rf2)) / sum(matconfus_rf2))
+err_rf2
+
+varImpPlot(model_rf2, sort = TRUE, n.var = 19, main = "Variables importance")
+```
+
+For developing countries, the most important variables are:
+
+Thinness between 1 and 19 years old, Thinness between 5 and 9 years old, total expenditure and HDI.
+
+# Analysis
+
+Clearly the life expectancy has extremely different values for developing and developed countries. In consequence, the variables that determine the life expectancy of a country should only be compared with it's peers. It's impossible to try to improve a developed country's life expectancy just by trying to improve the world's most important variables, because, for example, if you reduce the AIDS index in a developed country, the life expectancy wont change that much.
+
+We can clearly see that world's most important variables, are hugely influenced by developing countries, as they outnumber, the developed ones by far. So this variable importance shouldn't be used for developed countries.
+
+To improve their life expectancy, developing countries should focus and use their resources to improve their HDI, education, reduce the HIV and the adult mortality.
+
+For developed countries, this problems have already been addressed and don't suppose a problem, for example there is access to AIDS medicines and high education (and particularly in the medical field). If they want to improve their life expectancy they should prevent the thinness between 1 and 19 years old, augment the total expenditure and their HDI.
+
+# Validation of the results
+
+A huge augmentation of more than 20 years in the life expectancy was shown in Zimbabwe in the studied period. Many studies conclude that it was a consequence of a combination of factors, such as improving health care and access to medicines, as well as effective public health measures to address the HIV/AIDS epidemic that had severely affected the country in previous decades. In addition, efforts were made to improve nutrition and access to safe water and basic sanitation in the country.
+
+To sum up, they addressed HDI and HIV and had a great improvement in life expectancy. Those were the variables we identified as the most important for developing countries' life expectancy, which means, the analysis was correct.
+
+# Conclusion
+
+To improve their life expectancy, developing countries should focus and use their resources to improve their HDI, education, reduce the HIV and the adult mortality. On the other hand, developed countries should prevent the thinness between 1 and 19 years old, augment the total expenditure and improve their HDI.
+
+Further division could be done to get an appropriate comparison of a country with others in similar situations. A division by continent would be appropriate for example, as AIDS is a problem present in African developing countries but not in South American ones.
